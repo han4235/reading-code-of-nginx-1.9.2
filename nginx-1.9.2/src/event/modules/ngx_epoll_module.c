@@ -9,7 +9,7 @@
 #include <ngx_core.h>
 #include <ngx_event.h>
 
-/*
+/* http://blog.csdn.net/zhang_shuai_2011/article/details/7678990
 ÎÄ¼şÒì²½I/OÀí½â:
 ÖªµÀÒì²½IOÒÑ¾­ºÜ¾ÃÁË£¬µ«ÊÇÖ±µ½×î½ü£¬²ÅÕæÕıÓÃËüÀ´½â¾öÒ»ÏÂÊµ¼ÊÎÊÌâ£¨ÔÚÒ»¸öCPUÃÜ¼¯ĞÍµÄÓ¦ÓÃÖĞ£¬ÓĞÒ»Ğ©ĞèÒª´¦ÀíµÄÊı¾İ¿ÉÄÜ·ÅÔÚ´ÅÅÌÉÏ¡£Ô¤ÏÈ
 ÖªµÀÕâĞ©Êı¾İµÄÎ»ÖÃ£¬ËùÒÔÔ¤ÏÈ·¢ÆğÒì²½IO¶ÁÇëÇó¡£µÈµ½ÕæÕıĞèÒªÓÃµ½ÕâĞ©Êı¾İµÄÊ±ºò£¬ÔÙµÈ´ıÒì²½IOÍê³É¡£Ê¹ÓÃÁËÒì²½IO£¬ÔÚ·¢ÆğIOÇëÇóµ½Êµ¼ÊÊ¹ÓÃ
@@ -844,7 +844,7 @@ ngx_event_module_t  ngx_epoll_module_ctx = {
         NULL,                            /* trigger a notify */
 #endif
         ngx_epoll_process_events,        /* process the events */
-        ngx_epoll_init,                  /* init the events */
+        ngx_epoll_init,                  /* init the events */ //ÔÚ´´½¨µÄ×Ó½ø³ÌÖĞÖ´ĞĞ
         ngx_epoll_done,                  /* done the events */
     }
 };
@@ -996,7 +996,14 @@ io_getevents(aio_context_t ctx, long min_nr, long nr, struct io_event *events,
     return syscall(SYS_io_getevents, ctx, min_nr, nr, events, tmo);
 }
 
+/*
+ngx_epoll_aio_init³õÊ¼»¯aioÊÂ¼şÁĞ±í£¬ ngx_file_aio_readÌí¼Ó¶ÁÎÄ¼şÊÂ¼ş£¬µ±¶ÁÈ¡Íê±Ïºóepoll»á´¥·¢
+ngx_epoll_eventfd_handler->ngx_file_aio_event_handler 
+nginx file aioÖ»Ìá¹©ÁËread½Ó¿Ú£¬²»Ìá¹©write½Ó¿Ú£¬ÒòÎªÒì²½aioÖ»´Ó´ÅÅÌ¶ÁºÍĞ´£¬¶ø·Çaio·½Ê½Ò»°ãĞ´»áÂäµ½
+´ÅÅÌ»º´æ£¬ËùÒÔ²»Ìá¹©¸Ã½Ó¿Ú£¬Èç¹ûÒì²½ioĞ´¿ÉÄÜ»á¸üÂı
+*/
 
+//aioÊ¹ÓÃ¿ÉÒÔ²Î¿¼ngx_http_file_cache_aio_read  ngx_output_chain_copy_buf ¶¼ÊÇÎª¶ÁÈ¡ÎÄ¼ş×¼±¸µÄ
 static void
 ngx_epoll_aio_init(ngx_cycle_t *cycle, ngx_epoll_conf_t *epcf)
 {
@@ -1385,9 +1392,7 @@ ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags) //¸Ãº¯Êı
     }
 
     ee.events = events | (uint32_t) flags; //¼ÓÈëflags²ÎÊıµ½events±êÖ¾Î»ÖĞ
-    /*
-    ptr³ÉÔ±´æ´¢µÄÊÇngx_connection_tÁ¬½Ó£¬¿É²Î¼ûepollµÄÊ¹ÓÃ·½Ê½¡£
-     */
+    /* ptr³ÉÔ±´æ´¢µÄÊÇngx_connection_tÁ¬½Ó£¬¿É²Î¼ûepollµÄÊ¹ÓÃ·½Ê½¡£*/
     ee.data.ptr = (void *) ((uintptr_t) c | ev->instance);
 
     if (e->active) {//modify
@@ -1747,9 +1752,9 @@ ngx_notify->ngx_epoll_notifyÖ»»á´¥·¢epoll_in£¬²»»áÍ¬Ê±Òı·¢epoll_out£¬Èç¹ûÊÇÍøÂç¶
             //flags²ÎÊıÖĞº¬ÓĞNGX_POST_EVENTS±íÊ¾ÕâÅúÊÂ¼şÒªÑÓºó´¦Àí
             if (flags & NGX_POST_EVENTS) {
                 /*
-                    Èç¹ûÒªÔÚpost¶ÓÁĞÖĞÑÓºó´¦Àí¸ÃÊÂ¼ş£¬Ê×ÏÈÒªÅĞ¶ÏËüÊÇĞÂÁ¬½ÓÊÂ¼ş»¹ÊÇÆÕÍ¨ÊÂ¼ş£¬ÒÔ¾ö¶¨°ÑËü¼ÓÈëµ½ngx_posted_accept_events¶Ó
-                    ÁĞ»òÕßngx_postedL events¶ÓÁĞÖĞ¡£¹ØÓÚpost¶ÓÁĞÖĞµÄÊÂ¼şºÎÊ±Ö´ĞĞ
-                    */
+                Èç¹ûÒªÔÚpost¶ÓÁĞÖĞÑÓºó´¦Àí¸ÃÊÂ¼ş£¬Ê×ÏÈÒªÅĞ¶ÏËüÊÇĞÂÁ¬½ÓÊÂ¼ş»¹ÊÇÆÕÍ¨ÊÂ¼ş£¬ÒÔ¾ö¶¨°ÑËü¼ÓÈë
+                µ½ngx_posted_accept_events¶ÓÁĞ»òÕßngx_postedL events¶ÓÁĞÖĞ¡£¹ØÓÚpost¶ÓÁĞÖĞµÄÊÂ¼şºÎÊ±Ö´ĞĞ
+                */
                 queue = rev->accept ? &ngx_posted_accept_events
                                     : &ngx_posted_events;
 
@@ -1768,7 +1773,7 @@ ngx_notify->ngx_epoll_notifyÖ»»á´¥·¢epoll_in£¬²»»áÍ¬Ê±Òı·¢epoll_out£¬Èç¹ûÊÇÍøÂç¶
             if (c->fd == -1 || wev->instance != instance) { //ÅĞ¶ÏÕâ¸ö¶ÁÊÂ¼şÊÇ·ñÎª¹ıÆÚÊÂ¼ş
                 //µ±fdÌ×½Ó×ÖÃèÊö·ûÎª-1»òÕßinstance±êÖ¾Î»²»ÏàµÈÊ±£¬±íÊ¾Õâ¸öÊÂ¼şÒÑ¾­¹ıÆÚ£¬²»ÓÃ´¦Àí
                 /*
-                 * the stale event from a file descriptor
+                 *  the stale event from a file descriptor
                  * that was just closed in this iteration
                  */
 
@@ -1802,6 +1807,12 @@ ngx_epoll_eventfd_handler·½·¨½«µ±Ç°ÊÂ¼ş·ÅÈëµ½ngx_posted_events¶ÓÁĞÖĞ£¬ÔÚÑÓºóÖ´ĞĞ
 handler»Øµ÷·½·¨£¬²¢ÓëÎÄ¼şÒì²½I/OÊÂ¼ş½áºÏÆğÀ´µÄ¡£
     ÄÇÃ´£¬ÔõÑùÏòÒì²½I/OÉÏÏÂÎÄÖĞÌá½»Òì²½I/O²Ù×÷ÄØ£¿¿´¿´ngx_linux_aio read.cÎÄ¼şÖĞ
 µÄngx_file_aio_read·½·¨£¬ÔÚ´ò¿ªÎÄ¼şÒì²½I/Oºó£¬Õâ¸ö·½·¨½«»á¸ºÔğ´ÅÅÌÎÄ¼şµÄ¶ÁÈ¡
+*/
+/*
+ngx_epoll_aio_init³õÊ¼»¯aioÊÂ¼şÁĞ±í£¬ ngx_file_aio_readÌí¼Ó¶ÁÎÄ¼şÊÂ¼ş£¬µ±¶ÁÈ¡Íê±Ïºóepoll»á´¥·¢
+ngx_epoll_eventfd_handler->ngx_file_aio_event_handler 
+nginx file aioÖ»Ìá¹©ÁËread½Ó¿Ú£¬²»Ìá¹©write½Ó¿Ú£¬ÒòÎªÒì²½aioÖ»´Ó´ÅÅÌ¶ÁºÍĞ´£¬¶ø·Çaio·½Ê½Ò»°ãĞ´»áÂäµ½
+´ÅÅÌ»º´æ£¬ËùÒÔ²»Ìá¹©¸Ã½Ó¿Ú£¬Èç¹ûÒì²½ioĞ´¿ÉÄÜ»á¸üÂı
 */
 
 //¸Ãº¯ÊıÔÚngx_process_events_and_timersÖĞÖ´ĞĞ

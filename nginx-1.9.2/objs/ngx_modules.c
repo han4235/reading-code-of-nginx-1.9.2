@@ -58,8 +58,6 @@ extern ngx_module_t  ngx_http_charset_filter_module;
 extern ngx_module_t  ngx_http_userid_filter_module;
 extern ngx_module_t  ngx_http_myfilter_module;
 extern ngx_module_t  ngx_http_headers_filter_module;
-extern ngx_module_t  ngx_http_echo_module;
-extern ngx_module_t  ngx_http_lua_module;
 extern ngx_module_t  ngx_http_copy_filter_module;
 extern ngx_module_t  ngx_http_range_body_filter_module;
 extern ngx_module_t  ngx_http_not_modified_filter_module;
@@ -119,8 +117,6 @@ ngx_module_t *ngx_modules[] = {
     &ngx_http_userid_filter_module,
     &ngx_http_myfilter_module,
     &ngx_http_headers_filter_module,
-    &ngx_http_echo_module,
-    &ngx_http_lua_module,
     &ngx_http_copy_filter_module,
     &ngx_http_range_body_filter_module,
     &ngx_http_not_modified_filter_module,

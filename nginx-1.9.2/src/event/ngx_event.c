@@ -74,7 +74,7 @@ ngx_accept_mutex_ptr是共享内存空间，所有进程共享，而下面的ngx_use_accept_mutex等
 //具体实现:在创建子线程的时候，在执行ngx_event_process_init时并没有添加到epoll读事件中，worker抢到accept互斥体后，再放入epoll
 //ccf->master && ccf->worker_processes > 1 && ecf->accept_mutex 条件满足才会置该标记为1
 ngx_uint_t            ngx_use_accept_mutex; //那么会把ngx_use_accept_mutex置为1，可以避免惊群。赋值在ngx_event_process_init 
-ngx_uint_t            ngx_accept_events;
+ngx_uint_t            ngx_accept_events; //只有eventport会用到该变量
 /* ngx_accept_mutex_held是当前进程的一个全局变量，如果为l，则表示这个进程已经获取到了ngx_accept_mutex锁；如果为0，则表示没有获取到锁 */
 //见ngx_process_events_and_timers会置位该位  如果flag置为该位，则ngx_epoll_process_events会延后处理epoll事件ngx_post_event
 ngx_uint_t            ngx_accept_mutex_held; //1表示当前获取了ngx_accept_mutex锁   0表示当前并没有获取到ngx_accept_mutex锁   
@@ -284,7 +284,6 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
 {
     ngx_uint_t  flags;
     ngx_msec_t  timer, delta;
-
     
     /*nginx提供参数timer_resolution，设置缓存时间更新的间隔；
     配置该项后，nginx将使用中断机制，而非使用定时器红黑树中的最小时间为epoll_wait的超时时间，即此时定时器将定期被中断。
@@ -314,6 +313,7 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
 #endif
     }
 
+    ngx_use_accept_mutex = 1;
    //ngx_use_accept_mutex表示是否需要通过对accept加锁来解决惊群问题。当nginx worker进程数>1时且配置文件中打开accept_mutex时，这个标志置为1   
     if (ngx_use_accept_mutex) {
         /*
@@ -377,7 +377,7 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
       定时器，有则指向对应的定时器函数
     */
 
-    /*
+/*
 1.ngx_event_s可以是普通的epoll读写事件(参考ngx_event_connect_peer->ngx_add_conn或者ngx_add_event)，通过读写事件触发
 
 2.也可以是普通定时器事件(参考ngx_cache_manager_process_handler->ngx_add_timer(ngx_event_add_timer))，通过ngx_process_events_and_timers中的
@@ -392,10 +392,10 @@ epoll_wait返回，可以是读写事件触发返回，也可能是因为没获取到共享锁，从而等待0.5s
 
     delta = ngx_current_msec - delta; //(void) ngx_process_events(cycle, timer, flags)中epoll等待事件触发过程花费的时间
 
-    //ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "epoll_wait timer range(delta): %M", delta);
-                   
-    //来自于客户端的accept事件立epoll_wait返回后马执行，之行为accpet事件后，立马释放ngx_accept_mutex锁，这样其他进程就可以立马获得锁accept客户端连接
-    ngx_event_process_posted(cycle, &ngx_posted_accept_events); 
+    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "epoll_wait timer range(delta): %M", delta);
+             
+    //当感应到来自于客户端的accept事件，epoll_wait返回后加入到post队列，执行完所有accpet连接事件后，立马释放ngx_accept_mutex锁，这样其他进程就可以立马获得锁accept客户端连接
+    ngx_event_process_posted(cycle, &ngx_posted_accept_events); //一般执行ngx_event_accept
     
     //释放锁后再处理下面的EPOLLIN EPOLLOUT请求   
     if (ngx_accept_mutex_held) {
@@ -405,7 +405,7 @@ epoll_wait返回，可以是读写事件触发返回，也可能是因为没获取到共享锁，从而等待0.5s
     if (delta) {
         ngx_event_expire_timers(); //处理红黑树队列中的超时事件handler
     }
-
+    
     /*
      然后再处理正常的数据读写请求。因为这些请求耗时久，所以在ngx_process_events里NGX_POST_EVENTS标志将事件都放入ngx_posted_events
      链表中，延迟到锁释放了再处理。 
@@ -855,7 +855,7 @@ ngx_timer_signal_handler(int signo)
 }
 
 #endif
-//在创建子进程的里面执行  ngx_worker_process_init
+//在创建子进程的里面执行  ngx_worker_process_init，
 static ngx_int_t
 ngx_event_process_init(ngx_cycle_t *cycle)
 {
@@ -1044,14 +1044,17 @@ ngx_event_process_init(ngx_cycle_t *cycle)
      为ngx_event_accept，也就是说，有新连接事件时将调用ngx_event_accept方法建立新连接（）。
      */
     ls = cycle->listening.elts;
-    for (i = 0; i < cycle->listening.nelts; i++) {
+    for (i = 0; i < cycle->listening.nelts; i++) { 
 
 #if (NGX_HAVE_REUSEPORT)
+        //master进程执行ngx_clone_listening中如果配置了多worker，监听80端口会有worker个listen赋值，master进程在ngx_open_listening_sockets
+        //中会监听80端口worker次，那么子进程创建起来后，不是每个字进程都关注这worker多个 listen事件了吗?为了避免这个问题，nginx通过
+        //在子进程运行ngx_event_process_init函数的时候，通过ngx_add_event来控制子进程关注的listen，最终实现只关注master进程中创建的一个listen事件
         if (ls[i].reuseport && ls[i].worker != ngx_worker) {
             continue;
         }
 #endif
-
+        
         c = ngx_get_connection(ls[i].fd, cycle->log); //从连接池中获取一个ngx_connection_t
 
         if (c == NULL) {

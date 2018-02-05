@@ -1,4 +1,4 @@
-#define NGX_CONFIGURE " --add-module=./src/mytest_config --add-module=./src/my_test_module --add-module=./src/mytest_subrequest --add-module=./src/mytest_upstream --add-module=./src/ngx_http_myfilter_module --with-debug --with-file-aio --add-module=./src/sendfile_test --with-threads --add-module=/var/yyz/nginx-1.9.2/src/echo-nginx-module-master --add-module=./src/nginx-requestkey-module-master/ --with-http_secure_link_module --add-module=./src/redis2-nginx-module-master/ --add-module=./src/lua-nginx-module-master/"
+#define NGX_CONFIGURE " --add-module=./src/mytest_config --add-module=./src/my_test_module --add-module=./src/mytest_subrequest --add-module=./src/mytest_upstream --add-module=./src/ngx_http_myfilter_module --with-debug --with-file-aio --add-module=./src/sendfile_test --with-threads --add-module=./src/nginx-requestkey-module-master/ --with-http_secure_link_module --add-module=./src/redis2-nginx-module-master/"
 
 #ifndef NGX_DEBUG
 #define NGX_DEBUG  1
@@ -6,7 +6,7 @@
 
 
 #ifndef NGX_COMPILER
-#define NGX_COMPILER  "gcc 4.4.4 (GCC) "
+#define NGX_COMPILER  "gcc 4.8.5 20150623 (Red Hat 4.8.5-11) (GCC) "
 #endif
 
 
@@ -37,6 +37,11 @@
 
 #ifndef NGX_HAVE_EPOLLRDHUP
 #define NGX_HAVE_EPOLLRDHUP  1
+#endif
+
+
+#ifndef NGX_HAVE_O_PATH
+#define NGX_HAVE_O_PATH  1
 #endif
 
 
@@ -71,7 +76,7 @@
 
 
 #ifndef NGX_CPU_CACHE_LINE
-#define NGX_CPU_CACHE_LINE  32
+#define NGX_CPU_CACHE_LINE  64
 #endif
 
 
@@ -108,6 +113,11 @@
 #endif
 
 
+#ifndef NGX_HAVE_REUSEPORT
+#define NGX_HAVE_REUSEPORT  1
+#endif
+
+
 #ifndef NGX_HAVE_DEFERRED_ACCEPT
 #define NGX_HAVE_DEFERRED_ACCEPT  1
 #endif
@@ -115,6 +125,11 @@
 
 #ifndef NGX_HAVE_KEEPALIVE_TUNABLE
 #define NGX_HAVE_KEEPALIVE_TUNABLE  1
+#endif
+
+
+#ifndef NGX_HAVE_TCP_FASTOPEN
+#define NGX_HAVE_TCP_FASTOPEN  1
 #endif
 
 
@@ -149,7 +164,7 @@
 
 
 #ifndef NGX_PTR_SIZE
-#define NGX_PTR_SIZE  4
+#define NGX_PTR_SIZE  8
 #endif
 
 
@@ -164,12 +179,12 @@
 
 
 #ifndef NGX_MAX_SIZE_T_VALUE
-#define NGX_MAX_SIZE_T_VALUE  2147483647
+#define NGX_MAX_SIZE_T_VALUE  9223372036854775807LL
 #endif
 
 
 #ifndef NGX_SIZE_T_LEN
-#define NGX_SIZE_T_LEN  (sizeof("-2147483648") - 1)
+#define NGX_SIZE_T_LEN  (sizeof("-9223372036854775808") - 1)
 #endif
 
 
@@ -184,17 +199,17 @@
 
 
 #ifndef NGX_TIME_T_SIZE
-#define NGX_TIME_T_SIZE  4
+#define NGX_TIME_T_SIZE  8
 #endif
 
 
 #ifndef NGX_TIME_T_LEN
-#define NGX_TIME_T_LEN  (sizeof("-2147483648") - 1)
+#define NGX_TIME_T_LEN  (sizeof("-9223372036854775808") - 1)
 #endif
 
 
 #ifndef NGX_MAX_TIME_T_VALUE
-#define NGX_MAX_TIME_T_VALUE  2147483647
+#define NGX_MAX_TIME_T_VALUE  9223372036854775807LL
 #endif
 
 
@@ -209,7 +224,7 @@
 
 
 #ifndef NGX_SYS_NERR
-#define NGX_SYS_NERR  132
+#define NGX_SYS_NERR  135
 #endif
 
 
@@ -323,13 +338,13 @@
 #endif
 
 
-#ifndef NGX_HTTP_LUA_HAVE_SO_PASSCRED
-#define NGX_HTTP_LUA_HAVE_SO_PASSCRED  1
+#ifndef NGX_PCRE
+#define NGX_PCRE  1
 #endif
 
 
-#ifndef NGX_PCRE
-#define NGX_PCRE  1
+#ifndef NGX_HAVE_PCRE_JIT
+#define NGX_HAVE_PCRE_JIT  1
 #endif
 
 

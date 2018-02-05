@@ -28,7 +28,7 @@ static void ngx_cache_manager_process_handler(ngx_event_t *ev);
 static void ngx_cache_loader_process_handler(ngx_event_t *ev);
 
 //如果是第一次加载，则满足ngx_is_init_cycle。如果是reload热启动，则原来的nginx进程的ngx_process == NGX_PROCESS_MASTER
-ngx_uint_t    ngx_process;
+ngx_uint_t    ngx_process;//不赋初值，默认0，也就是NGX_PROCESS_SINGLE
 ngx_uint_t    ngx_worker;
 ngx_pid_t     ngx_pid;//ngx_pid = ngx_getpid(); 在子进程中为子进程pid，在master中为master的pid
 
@@ -201,7 +201,7 @@ ngx_uint_t    ngx_exiting; //ngx_exiting标志位仅由ngx_worker_process_cycle方法在
 sig_atomic_t  ngx_reconfigure;//nginx -s reload会触发该新号
 sig_atomic_t  ngx_reopen; //当接收到USRI信号时，ngx_reopen标志位会设为1，这是在告诉Nginx需要重新打开文件（如切换日志文件时）
 
-sig_atomic_t  ngx_change_binary; //平滑升级到新版本的Nginx程序
+sig_atomic_t  ngx_change_binary; //平滑升级到新版本的Nginx程序，热升级
 ngx_pid_t     ngx_new_binary;//进行热代码替换，这里是调用execve来执行新的代码。 这个是在ngx_change_binary的基础上获取值
 ngx_uint_t    ngx_inherited;
 ngx_uint_t    ngx_daemonized;
@@ -313,6 +313,7 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
         exit(2);
     }
 
+    /* 把master process + 参数一起主持主进程名 */
     p = ngx_cpymem(title, master_process, sizeof(master_process) - 1);
     for (i = 0; i < ngx_argc; i++) {
         *p++ = ' ';
@@ -584,6 +585,9 @@ ngx_noaccept，决定执行不同的分支流程，并循环执行（注意，每次一个循环执行完毕后进
     }
 }
 
+/*
+如果hginx.conf中配置为单进程工作模式，这时将会调用ngx_single_process_cycle方法进入单迸程工作模式。
+*/
 void
 ngx_single_process_cycle(ngx_cycle_t *cycle)
 {
@@ -639,7 +643,6 @@ ngx_single_process_cycle(ngx_cycle_t *cycle)
         }
     }
 }
-
 
 static void
 ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n, ngx_int_t type)
@@ -817,8 +820,8 @@ NGX_PROCESS_JUST_RESPAWN标识最终会在ngx_spawn_process()创建worker进程时，将ngx_p
 ngx_signal_worker_processes(cycle, ngx_signal_value(NGX_SHUTDOWN_SIGNAL));  
 以此关闭旧的worker进程。进入该函数，你会发现它也是循环向所有worker进程发送信号，所以它会先把旧worker进程关闭，然后再管理新的worker进程。
 */
-static void
-ngx_signal_worker_processes(ngx_cycle_t *cycle, int signo)
+static void     //ngx_reap_children和ngx_signal_worker_processes对应
+ngx_signal_worker_processes(ngx_cycle_t *cycle, int signo) //向进程发送signo信号
 {
     ngx_int_t      i;
     ngx_err_t      err;
@@ -920,7 +923,7 @@ ngx_signal_worker_processes(ngx_cycle_t *cycle, int signo)
 
 ///这个里面处理退出的子进程(有的worker异常退出，这时我们就需要重启这个worker )，如果所有子进程都退出则会返回0. 
 static ngx_uint_t
-ngx_reap_children(ngx_cycle_t *cycle)
+ngx_reap_children(ngx_cycle_t *cycle) //ngx_reap_children和ngx_signal_worker_processes对应
 {
     ngx_int_t         i, n;
     ngx_uint_t        live;
@@ -1095,9 +1098,9 @@ ngx_master_process_exit(ngx_cycle_t *cycle)
 */
 //在Nginx主循环（这里的主循环是ngx_worker_process_cycle方法）中，会定期地调用事件模块，以检查是否有网络事件发生。
 static void
-ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
+ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data) //data表示这是第几个worker进程
 {
-    ngx_int_t worker = (intptr_t) data;
+    ngx_int_t worker = (intptr_t) data; //worker表示绑定到第几个cpu上
 
     ngx_uint_t         i;
     ngx_connection_t  *c;
@@ -1105,7 +1108,7 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
     ngx_process = NGX_PROCESS_WORKER;
     ngx_worker = worker;
 
-    ngx_worker_process_init(cycle, worker);
+    ngx_worker_process_init(cycle, worker); //主要工作是把CPU和进程绑定
 
     ngx_setproctitle("worker process");
 
@@ -1187,7 +1190,7 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
 */
 static void
 ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
-{
+{ //主要工作是把CPU和进程绑定  创建epoll_crate等
     sigset_t          set;
     uint64_t          cpu_affinity;
     ngx_int_t         n;
@@ -1203,7 +1206,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
 
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
-    if (worker >= 0 && ccf->priority != 0) {
+    if (worker >= 0 && ccf->priority != 0) { /*设置优先级*/
         if (setpriority(PRIO_PROCESS, 0, ccf->priority) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           "setpriority(%d) failed", ccf->priority);
@@ -1214,6 +1217,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
         rlmt.rlim_cur = (rlim_t) ccf->rlimit_nofile;
         rlmt.rlim_max = (rlim_t) ccf->rlimit_nofile;
 
+        //RLIMIT_NOFILE指定此进程可打开的最大文件描述词大一的值，超出此值，将会产生EMFILE错误。
         if (setrlimit(RLIMIT_NOFILE, &rlmt) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           "setrlimit(RLIMIT_NOFILE, %i) failed",
@@ -1224,7 +1228,7 @@ ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker)
     if (ccf->rlimit_core != NGX_CONF_UNSET) {
         rlmt.rlim_cur = (rlim_t) ccf->rlimit_core;
         rlmt.rlim_max = (rlim_t) ccf->rlimit_core;
-
+        //修改工作进程的core文件尺寸的最大值限制(RLIMIT_CORE)，用于在不重启主进程的情况下增大该限制。
         if (setrlimit(RLIMIT_CORE, &rlmt) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           "setrlimit(RLIMIT_CORE, %O) failed",
